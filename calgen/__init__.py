@@ -1,5 +1,6 @@
 import icalendar
 import pytz
+import datetime
 import logging
 import time
 import ConfigParser
@@ -15,32 +16,41 @@ class Event(object):
     def format(self):
         event = icalendar.Event()
         event.add('summary', self.section)
-        #event.add('dtstart', self.start)
-        #event.add('dtstop', self.stop)
+        event.add('dtstart', self.start)
+        event.add('dtend', self.end)
         return event
+
+    def __getattr__(self, attr):
+        if attr in ('timezone', 'weekly', 'weekday', 'weekend'):
+            logging.debug('Getting %s', attr)
+            try:
+                return self.config.get(self.section, attr)
+            except ConfigParser.NoOptionError:
+                return self.config.get('DEFAULT', attr)
+
+    def __time(self, key, index):
+        try:
+            ts = self.config.get(self.section, key)
+        except ConfigParser.NoOptionError:
+            ts = self.duration()[index]
+        try:
+            return datetime.datetime.strptime(ts, "%a %b %d %H:%M:%S %Y")
+        except ValueError:
+            date = datetime.datetime.now(self.timezone)
+            hour, minute = ts.split(':')
+            return date.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
 
     @property
     def timezone(self):
-        try:
-            return pytz.timezone(self.config.get(self.section, 'timezone'))
-        except ConfigParser.NoOptionError:
-            return pytz.timezone(self.config.get('DEFAULT', 'timezone'))
+        return pytz.timezone(self.__getattr__('timezone'))
 
     @property
     def start(self):
-        try:
-            start = self.config.get(self.section, 'start')
-        except ConfigParser.NoOptionError:
-            start, _ = self.duration()
-        return time.strptime(start)
+        return self.__time('start', 0)
 
     @property
     def end(self):
-        try:
-            end = self.config.get(self.section, 'end')
-        except ConfigParser.NoOptionError:
-            _, end = self.duration()
-        return time.strptime(end)
+        return self.__time('end', 1)
 
     @property
     def repeat(self):
@@ -52,6 +62,7 @@ class Event(object):
     def duration(self):
         duration = self.config.get(self.section, 'duration')
         start, end = duration.split(' - ')
+        logger.debug('Parsing duration [%s] [%s]', start, end)
         return start.strip(), end.strip()
 
 
