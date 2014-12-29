@@ -2,10 +2,12 @@ import icalendar
 import pytz
 import datetime
 import logging
-import time
 import ConfigParser
 
 logger = logging.getLogger(__name__)
+
+WEEKDAY = [1, 2, 3, 4, 5]
+WEEKEND = [6, 7]
 
 
 class Event(object):
@@ -14,19 +16,43 @@ class Event(object):
         self.section = section
 
     def format(self):
-        event = icalendar.Event()
-        event.add('summary', self.section)
-        event.add('dtstart', self.start)
-        event.add('dtend', self.end)
-        return event
+        if any([self.until, self.begin]):
+            for offset in range(0, (self.until - self.begin).days + 1):
+                offset = datetime.timedelta(offset)
+                start = self.start + offset
+
+                if not self.weekly:
+                    if self.weekday and start.isoweekday() not in WEEKDAY:
+                        continue
+                    if self.weekend and start.isoweekday() not in WEEKEND:
+                        continue
+
+                event = icalendar.Event()
+                event.add('summary', self.section)
+                event.add('dtstart', start)
+                event.add('dtend', self.end + offset)
+                yield event
+        else:
+            event = icalendar.Event()
+            event.add('summary', self.section)
+            event.add('dtstart', self.start)
+            event.add('dtend', self.end)
+            yield event
 
     def __getattr__(self, attr):
-        if attr in ('timezone', 'weekly', 'weekday', 'weekend'):
-            logging.debug('Getting %s', attr)
+        if attr in ('weekly', 'weekend', 'weekday'):
+            func = self.config.getboolean
+        else:
+            func = self.config.get
+
+        if attr in ('timezone', 'weekly', 'weekday', 'weekend', 'until', 'begin'):
             try:
-                return self.config.get(self.section, attr)
+                return func(self.section, attr)
             except ConfigParser.NoOptionError:
-                return self.config.get('DEFAULT', attr)
+                try:
+                    return func('DEFAULT', attr)
+                except ConfigParser.NoOptionError:
+                    return None
 
     def __time(self, key, index):
         try:
@@ -36,9 +62,18 @@ class Event(object):
         try:
             return datetime.datetime.strptime(ts, "%a %b %d %H:%M:%S %Y")
         except ValueError:
-            date = datetime.datetime.now(self.timezone)
-            hour, minute = ts.split(':')
-            return date.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+            if self.begin:
+                date = self.begin
+                date = datetime.datetime(date.year, date.month, date.day)
+            else:
+                date = datetime.datetime.now(self.timezone)
+            hour, minute = map(int, ts.split(':'))
+            return date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    def __date(self, key):
+        date = self.__getattr__(key)
+        year, month, day = map(int, date.split('-'))
+        return datetime.date(year, month, day)
 
     @property
     def timezone(self):
@@ -59,10 +94,17 @@ class Event(object):
         except:
             return False
 
+    @property
+    def until(self):
+        return self.__date('until')
+
+    @property
+    def begin(self):
+        return self.__date('begin')
+
     def duration(self):
         duration = self.config.get(self.section, 'duration')
         start, end = duration.split(' - ')
-        logger.debug('Parsing duration [%s] [%s]', start, end)
         return start.strip(), end.strip()
 
 
@@ -75,5 +117,6 @@ class Calendar(object):
         cal = icalendar.Calendar()
         for section in self.config.sections():
             event = Event(section, self.config)
-            cal.add_component(event.format())
+            for e in event.format():
+                cal.add_component(e)
         return cal.to_ical()
