@@ -1,4 +1,5 @@
 import icalendar
+import csv
 import pytz
 import datetime
 import logging
@@ -151,16 +152,59 @@ class Event(object):
         return start.strip(), end.strip()
 
 
+class CSVEvent(object):
+    def __init__(self, row):
+        self.row = row
+
+    @property
+    def summary(self):
+        return self.row['Summary']
+
+    @property
+    def start(self):
+        year, month, day = map(int, self.row['Date'].split('-'))
+        start, end = self.row['Time'].split('-')
+        hour, minute = map(int, start.split(':'))
+        return datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
+
+    @property
+    def end(self):
+        year, month, day = map(int, self.row['Date'].split('-'))
+        start, end = self.row['Time'].split('-')
+        hour, minute = map(int, end.split(':'))
+        return datetime.datetime(year=year, month=month, day=day, hour=hour, minute=minute)
+
+    def format(self):
+        event = icalendar.Event()
+        event.add('summary', self.summary)
+        event.add('dtstart', self.start)
+        event.add('dtend', self.end)
+        return event
+
+
 class Calendar(object):
     def __init__(self, paths):
         self.cal = icalendar.Calendar()
         for path in paths:
-            config = ConfigParser.SafeConfigParser()
-            config.read(path)
-            for section in config.sections():
-                event = Event(section, config)
-                for e in event.format():
-                    self.cal.add_component(e)
+            logger.info('Parsing: %s', path)
+            if path.endswith('.ini'):
+                self.parse_ini(path)
+            elif path.endswith('.csv'):
+                self.parse_csv(path)
+
+    def parse_ini(self, path):
+        config = ConfigParser.SafeConfigParser()
+        config.read(path)
+        for section in config.sections():
+            event = Event(section, config)
+            for e in event.format():
+                self.cal.add_component(e)
+
+    def parse_csv(self, path):
+        with open(path, 'rb') as csvfile:
+            csvreader = csv.DictReader(csvfile)
+            for row in csvreader:
+                self.cal.add_component(CSVEvent(row).format())
 
     def format(self):
         return self.cal.to_ical()
