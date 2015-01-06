@@ -116,14 +116,15 @@ class Event(object):
 
 
 class Calendar(object):
-    def __init__(self, path):
-        self.config = ConfigParser.SafeConfigParser()
-        self.config.read(path)
+    def __init__(self, paths):
+        self.cal = icalendar.Calendar()
+        for path in paths:
+            config  = ConfigParser.SafeConfigParser()
+            config.read(path)
+            for section in config.sections():
+                event = Event(section, config)
+                for e in event.format():
+                    self.cal.add_component(e)
 
     def format(self):
-        cal = icalendar.Calendar()
-        for section in self.config.sections():
-            event = Event(section, self.config)
-            for e in event.format():
-                cal.add_component(e)
-        return cal.to_ical()
+        return self.cal.to_ical()
