@@ -182,6 +182,21 @@ class CSVEvent(object):
         return event
 
 
+class CommentStripper(object):
+    def __init__(self, fp):
+        self.fp = fp
+
+    def __iter__(self):
+        for line in self.fp:
+            if line.startswith(';'):
+                continue
+            if line.startswith('#'):
+                continue
+            if line.strip() == '':
+                continue
+            yield line
+
+
 class Calendar(object):
     def __init__(self, paths):
         self.cal = icalendar.Calendar()
@@ -202,7 +217,7 @@ class Calendar(object):
 
     def parse_csv(self, path):
         with open(path, 'rb') as csvfile:
-            csvreader = csv.DictReader(csvfile)
+            csvreader = csv.DictReader(CommentStripper(csvfile))
             for row in csvreader:
                 self.cal.add_component(CSVEvent(row).format())
 
