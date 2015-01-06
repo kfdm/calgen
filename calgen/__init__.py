@@ -33,13 +33,43 @@ class BooleanProperty(GlobalProperty):
 
 
 class DateProperty(object):
-    def __init__(self, key):
+    def __init__(self, key, default=None):
         self.key = key
+        self.default = default
 
     def __get__(self, instance, owner):
-        date = instance.config.get(instance.section, self.key)
-        year, month, day = map(int, date.split('-'))
-        return datetime.date(year, month, day)
+        try:
+            date = instance.config.get(instance.section, self.key)
+            year, month, day = map(int, date.split('-'))
+            return datetime.date(year, month, day)
+        except ConfigParser.NoOptionError:
+            return self.default
+
+
+class RangeProperty(object):
+    def __init__(self, key, index):
+        self.key = key
+        self.index = index
+
+    def __get__(self, instance, owner):
+        try:
+            ts = instance.config.get(instance.section, self.key)
+        except ConfigParser.NoOptionError:
+            ts = instance.duration()[self.index]
+
+        try:
+            return datetime.datetime.strptime(ts, "%a %b %d %H:%M:%S %Y")
+        except ValueError:
+            if instance.begin:
+                date = instance.begin
+                date = datetime.datetime(date.year, date.month, date.day)
+            elif instance.day:
+                date = instance.day
+                date = datetime.datetime(date.year, date.month, date.day)
+            else:
+                date = datetime.datetime.now(instance.timezone)
+            hour, minute = map(int, ts.split(':'))
+            return date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 class Event(object):
@@ -50,6 +80,9 @@ class Event(object):
     weekly = BooleanProperty('weekly')
     until = DateProperty('until')
     begin = DateProperty('begin')
+    day = DateProperty('date')
+    start = RangeProperty('start', 0)
+    end = RangeProperty('end', 1)
 
     def __init__(self, section, config):
         self.config = config
@@ -57,26 +90,32 @@ class Event(object):
 
     def format(self):
         if any([self.until, self.begin]):
-            for offset in range(0, (self.until - self.begin).days + 1):
-                offset = datetime.timedelta(offset)
-                start = self.start + offset
-
-                if not self.weekly:
-                    if self.weekday and start.isoweekday() not in WEEKDAY:
-                        continue
-                    if self.weekend and start.isoweekday() not in WEEKEND:
-                        continue
-
-                event = icalendar.Event()
-                event.add('summary', self.section)
-                event.add('dtstart', start)
-                event.add('dtend', self.end + offset)
-                yield event
+            return self.format_repeat()
         else:
+            return self.format_single()
+
+    def format_single(self):
+        event = icalendar.Event()
+        event.add('summary', self.section)
+        event.add('dtstart', self.start)
+        event.add('dtend', self.end)
+        yield event
+
+    def format_repeat(self):
+        for offset in range(0, (self.until - self.begin).days + 1):
+            offset = datetime.timedelta(offset)
+            start = self.start + offset
+
+            if not self.weekly:
+                if self.weekday and start.isoweekday() not in WEEKDAY:
+                    continue
+                if self.weekend and start.isoweekday() not in WEEKEND:
+                    continue
+
             event = icalendar.Event()
             event.add('summary', self.section)
-            event.add('dtstart', self.start)
-            event.add('dtend', self.end)
+            event.add('dtstart', start)
+            event.add('dtend', self.end + offset)
             yield event
 
     def __time(self, key, index):
@@ -100,14 +139,6 @@ class Event(object):
         return pytz.timezone(self.timezones)
 
     @property
-    def start(self):
-        return self.__time('start', 0)
-
-    @property
-    def end(self):
-        return self.__time('end', 1)
-
-    @property
     def repeat(self):
         try:
             return self.config.getboolean(self.section, 'repeat')
@@ -124,7 +155,7 @@ class Calendar(object):
     def __init__(self, paths):
         self.cal = icalendar.Calendar()
         for path in paths:
-            config  = ConfigParser.SafeConfigParser()
+            config = ConfigParser.SafeConfigParser()
             config.read(path)
             for section in config.sections():
                 event = Event(section, config)
