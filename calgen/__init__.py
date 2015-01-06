@@ -179,6 +179,11 @@ class CSVEvent(object):
         event.add('summary', self.summary)
         event.add('dtstart', self.start)
         event.add('dtend', self.end)
+        if 'organizer' in self.row:
+            event['organizer'] = icalendar.vCalAddress('')
+            event['organizer'].params['cn'] = icalendar.vText(self.row['organizer'])
+        if 'location' in self.row:
+            event['location'] = self.row['location']
         return event
 
 
