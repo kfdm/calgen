@@ -11,9 +11,11 @@ WEEKEND = [6, 7]
 
 
 class GlobalProperty(object):
-    def __init__(self, key, func):
+    func = 'get'
+
+    def __init__(self, key, default=None):
         self.key = key
-        self.func = func
+        self.default = default
 
     def __get__(self, instance, owner):
         func = getattr(instance.config, self.func)
@@ -23,7 +25,11 @@ class GlobalProperty(object):
             try:
                 return func('DEFAULT', self.key)
             except ConfigParser.NoOptionError:
-                return None
+                return self.default
+
+
+class BooleanProperty(GlobalProperty):
+    func = 'getboolean'
 
 
 class DateProperty(object):
@@ -37,12 +43,11 @@ class DateProperty(object):
 
 
 class Event(object):
-    timezones = GlobalProperty('timezone', 'get')
-    begin = GlobalProperty('timezone', 'begin')
-    timezone = GlobalProperty('timezone', 'get')
-    weekday = GlobalProperty('weekday', 'getboolean')
-    weekend = GlobalProperty('weekend', 'getboolean')
-    weekly = GlobalProperty('weekly', 'getboolean')
+    timezones = GlobalProperty('timezone')
+    timezone = GlobalProperty('timezone')
+    weekday = BooleanProperty('weekday')
+    weekend = BooleanProperty('weekend')
+    weekly = BooleanProperty('weekly')
     until = DateProperty('until')
     begin = DateProperty('begin')
 
