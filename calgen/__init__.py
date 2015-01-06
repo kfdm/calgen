@@ -10,7 +10,42 @@ WEEKDAY = [1, 2, 3, 4, 5]
 WEEKEND = [6, 7]
 
 
+class GlobalProperty(object):
+    def __init__(self, key, func):
+        self.key = key
+        self.func = func
+
+    def __get__(self, instance, owner):
+        func = getattr(instance.config, self.func)
+        try:
+            return func(instance.section, self.key)
+        except ConfigParser.NoOptionError:
+            try:
+                return func('DEFAULT', self.key)
+            except ConfigParser.NoOptionError:
+                return None
+
+
+class DateProperty(object):
+    def __init__(self, key):
+        self.key = key
+
+    def __get__(self, instance, owner):
+        date = instance.config.get(instance.section, self.key)
+        year, month, day = map(int, date.split('-'))
+        return datetime.date(year, month, day)
+
+
 class Event(object):
+    timezones = GlobalProperty('timezone', 'get')
+    begin = GlobalProperty('timezone', 'begin')
+    timezone = GlobalProperty('timezone', 'get')
+    weekday = GlobalProperty('weekday', 'getboolean')
+    weekend = GlobalProperty('weekend', 'getboolean')
+    weekly = GlobalProperty('weekly', 'getboolean')
+    until = DateProperty('until')
+    begin = DateProperty('begin')
+
     def __init__(self, section, config):
         self.config = config
         self.section = section
@@ -39,21 +74,6 @@ class Event(object):
             event.add('dtend', self.end)
             yield event
 
-    def __getattr__(self, attr):
-        if attr in ('weekly', 'weekend', 'weekday'):
-            func = self.config.getboolean
-        else:
-            func = self.config.get
-
-        if attr in ('timezone', 'weekly', 'weekday', 'weekend', 'until', 'begin'):
-            try:
-                return func(self.section, attr)
-            except ConfigParser.NoOptionError:
-                try:
-                    return func('DEFAULT', attr)
-                except ConfigParser.NoOptionError:
-                    return None
-
     def __time(self, key, index):
         try:
             ts = self.config.get(self.section, key)
@@ -70,14 +90,9 @@ class Event(object):
             hour, minute = map(int, ts.split(':'))
             return date.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-    def __date(self, key):
-        date = self.__getattr__(key)
-        year, month, day = map(int, date.split('-'))
-        return datetime.date(year, month, day)
-
     @property
     def timezone(self):
-        return pytz.timezone(self.__getattr__('timezone'))
+        return pytz.timezone(self.timezones)
 
     @property
     def start(self):
@@ -93,14 +108,6 @@ class Event(object):
             return self.config.getboolean(self.section, 'repeat')
         except:
             return False
-
-    @property
-    def until(self):
-        return self.__date('until')
-
-    @property
-    def begin(self):
-        return self.__date('begin')
 
     def duration(self):
         duration = self.config.get(self.section, 'duration')
